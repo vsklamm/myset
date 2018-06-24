@@ -4,16 +4,9 @@
 #define BITSEQ_H
 
 #include <memory>
-
 #include <cassert>
 #include <algorithm>
 #include <iterator>
-
-template <typename T>
-class set;
-
-template <typename T>
-void swap(set<T>&, set<T>&) noexcept;
 
 template <typename T>
 struct set {
@@ -29,63 +22,44 @@ private:
 			: left(nullptr), right(nullptr), parent(nullptr)
 		{}
 
+		base_node(base_node * parent)
+			: left(nullptr), right(nullptr), parent(parent)
+		{}
+
 		base_node(base_node* left, base_node* right, base_node * par)
 			: left(left), right(right), parent(par)
 		{}
 
-		virtual ~base_node() = default;
+		virtual ~base_node() {
+			delete left;
+			delete right;
+		}
 	};
 	struct node : base_node {
 		T value;
 
+		node(T const& value)
+			: set::base_node(), value(value)
+		{}
+
+		node(base_node * parent, T const& value)
+			: base_node(parent), value(value)
+		{}
+
 		node(base_node* left, base_node* right, base_node* par, const T& data)
-			: base_node(left, right, par), value(data) {}
-
-		friend void swap(node *frst, node *sec) {
-			node f_node(*frst);
-			node sec_node(*sec);
-			if (sec_node.parent != nullptr) {
-				if (sec_node.parent->left == sec) {
-					sec_node.parent->left = frst;
-				}
-				else {
-					sec_node.parent->right = frst;
-				}
-			}
-			if (f_node.parent != nullptr) {
-				if (f_node.parent->left == frst) {
-					f_node.parent->left = sec;
-				}
-				else {
-					f_node.parent->right = sec;
-				}
-			}
-			if (f_node.right != nullptr)
-				f_node.right->parent = sec;
-
-			if (sec_node.right != nullptr)
-				sec_node.right->parent = frst;
-
-			if (f_node.left != nullptr)
-				f_node.left->parent = sec;
-
-			if (sec_node.left != nullptr)
-				sec_node.left->parent = frst;
-
-			std::swap(sec->parent, frst->parent);
-			std::swap(sec->right, frst->right);
-			std::swap(sec->left, frst->left);
-		}
+			: base_node(left, right, par), value(data)
+		{}
 	};
 
-	base_node root_;
-	base_node * root = &root_;
+	base_node root;
+
+	base_node * get_root() const;
 
 public:
 
-	set() = default;
-	set(set const&);
-	set& operator=(set const& rhs) noexcept;
+	set() : root() {};
+	set(set const &other);
+	set& operator=(set rhs) noexcept;
 	~set();
 
 	base_node * destroy(base_node * cur_node) {
@@ -108,7 +82,13 @@ public:
 		}
 	}
 
-	friend void swap<T>(set& lhs, set& rhs) noexcept;
+	void swap(set<T> &other) noexcept;
+
+	/*
+	* === === === === === === === === === === === === === === ===
+	*                      I T E R A T O R S
+	* === === === === === === === === === === === === === === ===
+	*/
 
 	template <typename U>
 	class Iterator {
@@ -121,34 +101,59 @@ public:
 		using reference = U & ;
 		using iterator_category = std::bidirectional_iterator_tag;
 
+		Iterator() : Ptr_(nullptr)
+		{}
+
+		explicit Iterator(base_node* Ptr_) : Ptr_(Ptr_)
+		{}
+
 		template <typename V>
-		Iterator(const Iterator<V>& other,
-			typename std::enable_if<std::is_same<U, const V>::value>::type* = nullptr);
+		Iterator(Iterator<V> const& other);
+
+		Iterator& operator=(Iterator const& other) {
+			Ptr_ = other.Ptr_;
+			return *this;
+		}
 
 		pointer operator->() const {
 			return &(static_cast<node *>(Ptr_))->value;
+		}
+
+		reference operator*() const {
+			return (static_cast<node*>(Ptr_))->value;
 		}
 
 		Iterator& operator++() {
 			Ptr_ = next_node(Ptr_);
 			return *this;
 		}
-		const Iterator operator++(int) {
-			base_node *cur = Ptr_;
-			Ptr_ = next_node(Ptr_);
-			return iterator(cur);
-		}
-		Iterator& operator--() {
-			Ptr_ = prev_node(Ptr_);
-			return *this;
-		}
-		const Iterator operator--(int) {
-			base_node *cur = Ptr_;
-			Ptr_ = prev_node(Ptr_);
-			return iterator(cur);
+
+		Iterator operator++(int) {
+			auto tmp(*this);
+			++(*this);
+			return tmp;
 		}
 
-		U& operator*() const;
+		Iterator& operator--() {
+			if (Ptr_->left) {
+				Ptr_ = Ptr_->left;
+				while (Ptr_->right)
+					Ptr_ = Ptr_->right;
+			}
+			else {
+				while (Ptr_->parent->left == Ptr_)
+					Ptr_ = Ptr_->parent;
+				Ptr_ = Ptr_->parent;
+			}
+			return *this;
+		}
+
+		Iterator operator--(int) {
+			auto tmp(*this);
+			--(*this);
+			return tmp;
+		}
+
 		friend bool operator==(const Iterator& lhs, const Iterator& rhs) {
 			return lhs.Ptr_ == rhs.Ptr_;
 		}
@@ -157,50 +162,55 @@ public:
 		}
 
 	private:
-		explicit Iterator(base_node* ptr);
 
 		base_node * Ptr_;
 	};
 
-	using iterator = Iterator<T>;
+	using iterator = Iterator<const T>;
 	using const_iterator = Iterator<const T>;
 	using reverse_iterator = std::reverse_iterator<iterator>;
 	using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
-	iterator begin();
-	const_iterator begin() const;
-	iterator end();
-	const_iterator end() const;
-	reverse_iterator rbegin() { return reverse_iterator(end()); }
-	const_reverse_iterator rbegin() const { return const_reverse_iterator(end()); }
-	reverse_iterator rend() { return reverse_iterator(begin()); }
-	const_reverse_iterator rend() const { return const_reverse_iterator(begin()); }
+	iterator begin() const;
+	iterator end() const;
+	const_iterator cbegin() const;
+	const_iterator cend() const;
+	reverse_iterator rbegin() const { return reverse_iterator(end()); }
+	reverse_iterator rend() const { return reverse_iterator(begin()); }
+	const_reverse_iterator crbegin() const { return const_reverse_iterator(end()); }
+	const_reverse_iterator crend() const { return const_reverse_iterator(begin()); }
+
+	/*
+	 * === === === === === === === === === === === === === === ===
+	 *                 C O M M O N  M E T H O D S
+	 * === === === === === === === === === === === === === === ===
+	 */
 
 	const_iterator find(T const &value) const {
-		return find_dfs(root->left, value);
+		return find_dfs(root.left, value);	
 	}
 
 	const_iterator lower_bound(T const &value) const {
 		const_iterator result = end();
-		base_node * cur = root->left;
+		base_node * current = root.left;
 
-		while (cur != nullptr) {
-			T cur_value = static_cast<node*>(cur)->value;
+		while (current != nullptr) {
+			T cur_value = static_cast<node*>(current)->value;
 			if (value < cur_value || (!(cur_value < value) && !(value < cur_value))) {
 				if (result == end() || cur_value < *result) {
-					result = const_iterator(cur);
+					result = const_iterator(current);
 				}
-				cur = cur->left;
+				current = current->left;
 			}
 			else {
-				cur = cur->right;
+				current = current->right;
 			}
 		}
 		return result;
 	}
 	const_iterator upper_bound(T const &value) const {
 		const_iterator result = end();
-		base_node * cur = root->left;
+		base_node * cur = root.left;
 
 		while (cur != nullptr) {
 			T cur_value = static_cast<node*>(cur)->value;
@@ -218,53 +228,81 @@ public:
 	}
 
 	bool empty() const {
-		return root->left == nullptr;
+		return root.left == nullptr;
 	}
 
 	void clear() {
-		destroy(root->left);
+		//destroy(root.left);
+		delete root.left;
+		root.left = nullptr;
 	}
 
 	std::pair<iterator, bool> insert(T const &value)
 	{
-		if (root->left != nullptr) {
-			node * cur = static_cast<node *>(root->left);
-			return ins(cur, value);
+		if (root.left == nullptr) {
+			root.left = new node(&root, value);
+			return { iterator(root.left), true };
 		}
-		base_node * new_node = new node(nullptr, nullptr, root, value);
-		root->left = new_node;
-		return std::pair<iterator, bool>(iterator(new_node), true);
+		base_node * cur = root.left;
+		while (true) {
+			if (static_cast<node*>(cur)->value == value)
+				return { iterator(cur), false };
+			if (static_cast<node*>(cur)->value > value) {
+				if (cur->left)
+					cur = cur->left;
+				else {
+					cur->left = new node(cur, value);
+					return { iterator(cur->left), true };
+				}
+			}
+			if (static_cast<node*>(cur)->value < value) {
+				if (cur->right)
+					cur = cur->right;
+				else {
+					cur->right = new node(cur, value);
+					return { iterator(cur->right), true };
+				}
+			}
+		}
 	}
 
 	iterator erase(const_iterator pos) {
-		return erase_impl(static_cast<node *>(pos.Ptr_));
+		iterator ret = pos;
+		++ret;
+
+		if (pos.Ptr_->left && pos.Ptr_->right) {
+			auto next = pos;
+			++next;
+			const_iterator cur = detach(next);
+
+			if (pos.Ptr_->parent->left == pos.Ptr_)
+				pos.Ptr_->parent->left = cur.Ptr_;
+			else
+				pos.Ptr_->parent->right = cur.Ptr_;
+
+			if (pos.Ptr_->right)
+				pos.Ptr_->right->parent = cur.Ptr_;
+			if (pos.Ptr_->left)
+				pos.Ptr_->left->parent = cur.Ptr_;
+
+			cur.Ptr_->parent = pos.Ptr_->parent;
+			cur.Ptr_->left = pos.Ptr_->left;
+			cur.Ptr_->right = pos.Ptr_->right;
+		}
+		else {
+			detach(pos);
+		}
+		pos.Ptr_->right = pos.Ptr_->left = nullptr;
+		delete pos.Ptr_;
+		return ret;
 	}
 
 private:
-	// === === === local functions === === ===
-
-	static std::pair<iterator, bool> ins(base_node * cur, T const & value)
-	{
-		if (!(value < static_cast<node*>(cur)->value) && !(static_cast<node*>(cur)->value < value)) {
-			return std::pair<iterator, bool>(iterator(cur), false);
-		}
-		if (value < static_cast<node*>(cur)->value) {
-			if (cur->left != nullptr) {
-				return ins(cur->left, value);
-			}
-			base_node * new_node = new node(nullptr, nullptr, cur, value);
-			cur->left = new_node;
-			return std::pair<iterator, bool>(iterator(new_node), true);			
-		}
-		else {
-			if (cur->right != nullptr) {
-				return ins(cur->right, value);
-			}
-			base_node *new_node = new node(nullptr, nullptr, cur, value);
-			cur->right = new_node;
-			return std::pair<iterator, bool>(iterator(new_node), true);
-		}
-	}
+	/*
+	* === === === === === === === === === === === === === === ===
+	*                L O C A L  O P E R A T I O N S
+	* === === === === === === === === === === === === === === ===
+	*/
 
 	const_iterator find_dfs(base_node * cur, T const &val) const {
 		if (cur == nullptr) {
@@ -277,61 +315,41 @@ private:
 		if (val < static_cast<node*>(cur)->value) {
 			return find_dfs(cur->left, val);
 		}
-		else {
-			return find_dfs(cur->right, val);
-		}
+		return find_dfs(cur->right, val);
 	}
 
-	iterator erase_impl(base_node * erased_node) {
-		iterator tmp_it(erased_node);
-		tmp_it++;
-		if (erased_node->left == nullptr) {
-			if (erased_node->parent != nullptr) {
-				if (erased_node->parent->right == erased_node) {
-					erased_node->parent->right = erased_node->left;
-				}
-				else {
-					erased_node->parent->left = erased_node->left;
-				}
-			}
-			if (erased_node->left != nullptr) {
-				erased_node->left->parent = erased_node->parent;
-			}
-			delete erased_node;
+	static const_iterator detach(const_iterator iter)
+	{
+		if (!iter.Ptr_->left && !iter.Ptr_->right)
+		{
+			if (iter.Ptr_->parent->left == iter.Ptr_)
+				iter.Ptr_->parent->left = nullptr;
+			else
+				iter.Ptr_->parent->right = nullptr;
 		}
-		else if (erased_node->left == nullptr) {
-			if (erased_node->parent != nullptr) {
-				if (erased_node->parent->right == erased_node) {
-					erased_node->parent->right = erased_node->right;
-				}
-				else {
-					erased_node->parent->left = erased_node->right;
-				}
-			}
-			erased_node->right->parent = erased_node->parent;
-			delete erased_node;
+		else if (!iter.Ptr_->left && iter.Ptr_->right)
+		{
+			if (iter.Ptr_->parent->left == iter.Ptr_)
+				iter.Ptr_->parent->left = iter.Ptr_->right;
+			else
+				iter.Ptr_->parent->right = iter.Ptr_->right;
+			iter.Ptr_->right->parent = iter.Ptr_->parent;
 		}
-		else {
-			base_node *goer = erased_node->left;
-			while (goer->right != nullptr) {
-				goer = goer->right;
-			}
-			swap(static_cast<node *>(goer), static_cast<node *>(erased_node));
-			erase_impl(erased_node);
+		else if (iter.Ptr_->left && !iter.Ptr_->right)
+		{
+			if (iter.Ptr_->parent->left == iter.Ptr_)
+				iter.Ptr_->parent->left = iter.Ptr_->left;
+			else
+				iter.Ptr_->parent->right = iter.Ptr_->left;
+			iter.Ptr_->left->parent = iter.Ptr_->parent;
 		}
-		return tmp_it;
+		return iter;
 	}
 
 	static base_node * minimum(base_node * cur) {
 		if (cur->left == nullptr)
 			return cur;
 		return minimum(cur->left);
-	}
-
-	static base_node * maximum(base_node * cur) {
-		if (cur->right == nullptr)
-			return cur;
-		return minimum(cur->right);
 	}
 
 	static base_node * next_node(base_node * cur) {
@@ -345,103 +363,71 @@ private:
 		}
 		return y;
 	}
-
-	static base_node * prev_node(base_node * cur) {
-		if (cur->left != nullptr)
-			return maximum(cur->left);
-
-		base_node * y = cur->parent;
-		while (y != nullptr && cur == y->left) {
-			cur = y;
-			y = y->parent;
-		}
-		return y;
-	}
-
-	base_node * real_root() {
-		return root->left;
-	}
 };
 
-template <typename T>
-void swap(set<T>& lhs, set<T>& rhs) noexcept {
-	typename set<T>::base_node * lp = lhs.root->left;
-	typename set<T>::base_node * rp = rhs.root->left;
-	std::swap(lhs.root, rhs.root);
-	std::swap(lp, rp);
-	if (lp) lp->parent = rhs.root;
-	if (rp) rp->parent = lhs.root;
+template<typename T>
+void set<T>::swap(set<T> &other) noexcept
+{
+	if (root.left && other.root.left)
+		std::swap(root.left->parent, other.root.left->parent);
+	else if (root.left)
+		root.left->parent = &other.root;
+	else if (other.root.left)
+		other.root.left->parent = &root;
+	std::swap(root.left, other.root.left);
 }
 
-// ================================================================
-// ================================================================
-
 template <typename T>
-template <typename U>
-set<T>::Iterator<U>::Iterator(typename set<T>::base_node* ptr)
-	: Ptr_(ptr)
-{}
-
-template <typename T>
-template <typename U>
-template <typename V>
-set<T>::Iterator<U>::Iterator(const Iterator<V> &other,
-	typename std::enable_if<std::is_same<U, const V>::value>::type*)
-	: Ptr_(other.Ptr_)
-{}
-
-template<typename T>
-template<typename U>
-U& set<T>::Iterator<U>::operator*() const {
-	return static_cast<node*>(Ptr_)->value;
-}
-
-// =================================================================
-// =================================================================
-
-template<typename T>
-set<T>::set(const set &other) : set() {
+void swap(set<T> &lhs, set<T> &rhs) noexcept {
+	lhs.swap(rhs);
 }
 
 template<typename T>
-set<T>& set<T>::operator=(set const& rhs) noexcept {
-	set tmp = rhs;
-	swap(*this, tmp);
+set<T>::set(const set &other) : root() {
+	for (auto x : other) {
+		insert(x);
+	}
+}
+
+template<typename T>
+set<T>& set<T>::operator=(set<T> rhs) noexcept {
+	swap(rhs);
 	return *this;
 }
 
 template<typename T>
 set<T>::~set() {
-	destroy(real_root());
+	//destroy(real_root());
+	delete root.left;
+	root.left = nullptr;
 }
 
 template<typename T>
-typename set<T>::iterator set<T>::begin() {
-	if (root->left) {
-		return iterator(minimum(root));
-	}
-	return iterator(root);
+typename set<T>::iterator set<T>::begin() const {
+	base_node * cur = get_root();
+	while (cur->left)
+		cur = cur->left;
+	return set<T>::iterator(cur);
 }
+
 template<typename T>
-typename set<T>::const_iterator set<T>::begin() const {
-	if (root->left) {
-		return const_iterator(minimum(root));
-	}
-	return const_iterator(root);
+typename set<T>::iterator set<T>::end() const {
+	return set<T>::iterator(get_root());
 }
+
 template<typename T>
-typename set<T>::iterator set<T>::end() {
-	if (root->left) {
-		return iterator(maximum(root));
-	}
-	return iterator(root);
+typename set<T>::const_iterator set<T>::cbegin() const {
+	return set::const_iterator(begin());
 }
+
 template<typename T>
-typename set<T>::const_iterator set<T>::end() const {
-	if (root->left) {
-		return const_iterator(maximum(root));
-	}
-	return const_iterator(root);
+typename set<T>::const_iterator set<T>::cend() const {
+	return set::const_iterator(end());
+}
+
+template<typename T>
+typename set<T>::base_node *set<T>::get_root() const {
+	return const_cast<typename set<T>::base_node*>(&root);
 }
 
 #endif // SET_H
