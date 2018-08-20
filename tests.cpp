@@ -12,6 +12,7 @@
 
 #include "set.h"
 
+
 template<typename C, typename T>
 void mass_push_back(C &c, std::initializer_list<T> elems) {
 	for (T const &e : elems)
